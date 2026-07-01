@@ -35,6 +35,7 @@ use ironclaw_filesystem::{
 use ironclaw_host_api::{
     MountAlias, MountGrant, MountPermissions, MountView, RuntimeHttpEgressRequest, VirtualPath,
 };
+use ironclaw_llm::Role;
 use ironclaw_product_adapters::{ProductInboundAck, ProductTriggerReason, ProductWorkflow};
 use ironclaw_product_workflow::{
     DefaultProductWorkflow, ProductConversationRouteKind, ResolveBindingRequest, ResolvedBinding,
@@ -56,6 +57,7 @@ use super::process::ScriptedProcessResult;
 use super::reply::RebornScriptedReply;
 use super::session_thread::RebornThreadHarness;
 use super::test_adapter::RebornTestIngress;
+use crate::support::trace_llm::TraceLlm;
 
 type HarnessResult<T> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
@@ -308,6 +310,12 @@ pub struct RebornIntegrationHarness {
     pub(crate) coordinator: Arc<dyn TurnCoordinator>,
     pub(crate) event_seq: AtomicU64,
     pub(crate) capability_recorder: HarnessCapabilityRecorder,
+    /// The concrete scripted `TraceLlm` retained before it was upcast to
+    /// `dyn LlmProvider` in the per-thread gateway build. Its
+    /// `captured_requests()` lets assertions inspect the model-visible prompt
+    /// (system-prompt injection: safety banners, skill instructions, profile
+    /// lines). Read via `captured_system_prompts()`.
+    pub(crate) scripted_llm: Arc<TraceLlm>,
     /// Shared storage bundle keeping the composite, TempDir, product harness, and
     /// capability alive for this harness's lifetime. For a single-shot harness the
     /// Arc is the sole owner; for a group thread it is shared with the group and
@@ -534,6 +542,24 @@ impl RebornIntegrationHarness {
     pub(super) fn captured_egress_requests(&self) -> Vec<RuntimeHttpEgressRequest> {
         let all = self.capability_recorder.runtime_http_requests();
         all[self.baseline_egress_count..].to_vec()
+    }
+
+    /// Every `System`-role prompt the model saw across the captured requests, in
+    /// call order. Reads the scripted `TraceLlm` retained before the
+    /// `dyn LlmProvider` upcast (`scripted_llm`). Empty until the first turn is
+    /// submitted. Read by `assert_system_prompt_contains` in `assertions.rs`.
+    ///
+    /// No `[baseline..]` slice (unlike `captured_egress_requests`): `scripted_llm`
+    /// is a fresh per-thread `Arc<TraceLlm>` built in `RebornThreadBuilder::build`,
+    /// not a group-shared recorder, so it only ever holds this thread's requests.
+    pub(super) fn captured_system_prompts(&self) -> Vec<String> {
+        self.scripted_llm
+            .captured_requests()
+            .into_iter()
+            .flatten()
+            .filter(|message| matches!(message.role, Role::System))
+            .map(|message| message.content)
+            .collect()
     }
 
     /// Assert that a `builtin.shell` command was recorded by the inert process
