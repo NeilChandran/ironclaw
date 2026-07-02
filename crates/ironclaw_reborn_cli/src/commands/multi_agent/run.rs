@@ -28,7 +28,8 @@ pub(crate) struct MultiAgentRunCommand {
     #[arg(long = "max-retries", default_value_t = 0)]
     max_retries: u32,
 
-    /// Print the live job tree and progress event log.
+    /// Include the timestamped event log section in the output.
+    /// The execution plan, agent-run tree, and summary are always shown.
     #[arg(long = "show-progress")]
     show_progress: bool,
 
