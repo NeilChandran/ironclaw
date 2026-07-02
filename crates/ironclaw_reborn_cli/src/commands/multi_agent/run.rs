@@ -28,10 +28,9 @@ pub(crate) struct MultiAgentRunCommand {
     #[arg(long = "max-retries", default_value_t = 0)]
     max_retries: u32,
 
-    /// Include the timestamped event log section in the output.
-    /// The execution plan, agent-run tree, and summary are always shown.
-    #[arg(long = "show-progress")]
-    show_progress: bool,
+    /// Show full output for every AgentRun (task, result, event log).
+    #[arg(long)]
+    verbose: bool,
 
     /// Use the configured Reborn LLM provider to execute leaf tasks instead of
     /// the placeholder executor. Requires a provider to be configured (see
@@ -48,7 +47,7 @@ impl MultiAgentRunCommand {
             self.max_iterations,
             Duration::from_secs(self.task_timeout_secs),
             self.max_retries,
-            self.show_progress,
+            false,
         );
 
         #[cfg(feature = "root-llm-provider")]
@@ -62,12 +61,12 @@ impl MultiAgentRunCommand {
                     boot,
                 ),
             )?;
-            print!("{}", format_run_output(&report, self.show_progress));
+            print!("{}", format_run_output(&report, self.verbose));
             return Ok(());
         }
 
         let report = crate::runtime::block_on_cli(run_reborn_multi_agent_task(self.task, options))?;
-        print!("{}", format_run_output(&report, self.show_progress));
+        print!("{}", format_run_output(&report, self.verbose));
         Ok(())
     }
 }
